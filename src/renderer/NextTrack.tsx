@@ -4,43 +4,18 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Col, Container, Row } from 'reactstrap';
 
 const CLIENT_ID = '7d1e55e578874bf39f191c0425cca5d9';
-const REDIRECT_URI = 'http://localhost:1213/';
+const REDIRECT_URI = encodeURIComponent('myapp://auth-callback'); // Custom protocol redirect URI
 const AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
 const SCOPES = 'user-modify-playback-state user-read-playback-state';
 
 function SpotifyControl() {
-  const [accessToken, setAccessToken] = useState(
-    localStorage.getItem('spotifyAccessToken') || '',
-  );
+  const spotifyAccessToken = localStorage.getItem('spotifyAccessToken');
+
   const [currentVolume, setCurrentVolume] = useState(null); // State to hold current volume
   const navigate = useNavigate();
-
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.hash.substring(1));
-    const token = urlParams.get('access_token');
-    const expiresIn = urlParams.get('expires_in'); // Get token expiration time
-
-    if (token) {
-      const expirationTime = Date.now() + expiresIn * 1000; // Convert to milliseconds
-      localStorage.setItem('spotifyAccessToken', token);
-      localStorage.setItem('spotifyTokenExpiration', expirationTime);
-      setAccessToken(token);
-      window.history.pushState({}, null, window.location.pathname); // Clean URL
-    } else {
-      checkTokenExpiration();
-    }
+    login(); // Reauthorize user
   }, []);
-
-  const checkTokenExpiration = () => {
-    const expirationTime = Number(
-      localStorage.getItem('spotifyTokenExpiration'),
-    ); // Convert to number
-    if (!expirationTime || Date.now() >= expirationTime) {
-      localStorage.removeItem('spotifyAccessToken');
-      localStorage.removeItem('spotifyTokenExpiration');
-      login(); // Reauthorize user
-    }
-  };
 
   useEffect(() => {
     const handleNextTrack = () => playNextTrack();
@@ -71,11 +46,13 @@ function SpotifyControl() {
   }, []);
 
   const login = () => {
-    window.location.href = `${AUTH_ENDPOINT}?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=${SCOPES}&response_type=token&show_dialog=true`;
+    window.open(
+      `${AUTH_ENDPOINT}?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=${SCOPES}&response_type=token&show_dialog=true`,
+    );
   };
 
   const playNextTrack = async () => {
-    if (!accessToken) return;
+    if (!spotifyAccessToken) return;
 
     try {
       const response = await fetch(
@@ -83,7 +60,7 @@ function SpotifyControl() {
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${spotifyAccessToken}`,
             'Content-Type': 'application/json',
           },
         },
@@ -91,8 +68,10 @@ function SpotifyControl() {
 
       if (response.status === 204) {
         console.log('Skipped to the next track!');
+        alert('Done');
       } else {
         const errorData = await response.json();
+        alert(`${spotifyAccessToken} ${JSON.stringify(errorData)}`);
         console.error('Error skipping track:', errorData);
       }
     } catch (error) {
@@ -101,7 +80,7 @@ function SpotifyControl() {
   };
 
   const playTrack = async () => {
-    if (!accessToken) return;
+    if (!spotifyAccessToken) return;
 
     try {
       const response = await fetch(
@@ -109,7 +88,7 @@ function SpotifyControl() {
         {
           method: 'PUT',
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${spotifyAccessToken}`,
             'Content-Type': 'application/json',
           },
         },
@@ -127,7 +106,7 @@ function SpotifyControl() {
   };
 
   const pauseTrack = async () => {
-    if (!accessToken) return;
+    if (!spotifyAccessToken) return;
 
     try {
       const response = await fetch(
@@ -135,7 +114,7 @@ function SpotifyControl() {
         {
           method: 'PUT',
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${spotifyAccessToken}`,
             'Content-Type': 'application/json',
           },
         },
@@ -153,13 +132,13 @@ function SpotifyControl() {
   };
 
   const fetchCurrentVolume = async () => {
-    if (!accessToken) return;
+    if (!spotifyAccessToken) return;
 
     try {
       const response = await fetch('https://api.spotify.com/v1/me/player', {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${spotifyAccessToken}`,
         },
       });
 
@@ -176,7 +155,7 @@ function SpotifyControl() {
 
   const adjustVolume = async (increase) => {
     // await fetchCurrentVolume();
-    if (!accessToken) return;
+    if (!spotifyAccessToken) return;
 
     const newVolume = increase ? 75 : 25;
 
@@ -186,7 +165,7 @@ function SpotifyControl() {
         {
           method: 'PUT',
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${spotifyAccessToken}`,
             'Content-Type': 'application/json',
           },
         },
@@ -209,7 +188,7 @@ function SpotifyControl() {
   return (
     <Container className="d-flex flex-column align-items-center justify-content-center min-vh-100 bg-dark text-white">
       <h1 className="mb-4">Spotify Controller</h1>
-      {accessToken ? (
+      {spotifyAccessToken ? (
         <Row className="w-50 text-center">
           <Col xs="6" className="mb-2">
             <Button color="success" block onClick={() => playTrack()}>

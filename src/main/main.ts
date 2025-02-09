@@ -16,6 +16,7 @@ import {
   ipcMain,
   globalShortcut,
   ipcRenderer,
+  protocol,
 } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
@@ -128,6 +129,13 @@ const createWindow = async () => {
   ipcMain.on('get-shortcuts', () => {
     mainWindow.webContents.send('current-shortcuts', JSON.stringify(shortcuts));
   });
+  ipcMain.on('login', (url) => {
+    console.log('Testing', url);
+
+    shell.openExternal(
+      `${AUTH_ENDPOINT}?client_id=${CLIENT_ID}&redirect_uri=${REDIRECT_URI}&scope=${SCOPES}&response_type=token&show_dialog=true`,
+    );
+  });
 
   function registerShortcuts(shortcuts) {
     globalShortcut.register(shortcuts.nextTrack, () => {
@@ -194,15 +202,64 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+const isSecondInstance = app.requestSingleInstanceLock();
+// Prevent multiple instances of the app
+const gotTheLock = app.requestSingleInstanceLock();
 
-app
-  .whenReady()
-  .then(() => {
-    createWindow();
-    app.on('activate', () => {
-      // On macOS it's common to re-create a window in the app when the
-      // dock icon is clicked and there are no other windows open.
-      if (mainWindow === null) createWindow();
-    });
-  })
-  .catch(console.log);
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, focus the existing window
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+
+    // Handle the custom protocol URL if it was passed as a command line argument
+    const url = commandLine.find((arg) => arg.startsWith('myapp://'));
+    if (url) {
+      handleCustomProtocol(url);
+    }
+  });
+
+  app
+    .whenReady()
+    .then(() => {
+      // Register the custom protocol early, before OAuth request
+      app.setAsDefaultProtocolClient('myapp'); // Register the protocol
+
+      // Create the window once the app is ready
+      createWindow();
+
+      // Handle the custom protocol
+      protocol.registerHttpProtocol('myapp', (request) => {
+        const url = request.url;
+        handleCustomProtocol(url);
+      });
+
+      // On macOS it's common to re-create a window in the app when the dock icon is clicked and there are no other windows open.
+      app.on('activate', () => {
+        if (mainWindow === null) createWindow();
+      });
+    })
+    .catch(console.log);
+}
+
+const handleCustomProtocol = (url) => {
+  const parsedUrl = new URL(url);
+  console.log('Custom protocol URL:', parsedUrl);
+
+  const hashParams = new URLSearchParams(parsedUrl.hash.substring(1)); // Remove the leading "#"
+  const accessToken = hashParams.get('access_token');
+  const expiresIn = hashParams.get('expires_in');
+
+  if (accessToken) {
+    console.log('🎯 Token received:', accessToken);
+
+    // Send the access token and expiration info to the renderer process (front-end)
+    mainWindow?.webContents.send('spotify-auth-success', accessToken);
+  } else {
+    console.log('No access token found.');
+  }
+};
